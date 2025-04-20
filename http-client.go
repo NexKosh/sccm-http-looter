@@ -1,51 +1,73 @@
 package main
 
 import (
-	"crypto/tls"
-	"fmt"
-	"log/slog"
-	"net/http"
-	"os"
-	"time"
+    "crypto/tls"
+    "log/slog"
+    "net/http"
+    "os"
+    "time"
+
+    "github.com/Azure/go-ntlmssp"
 )
 
-func createCustomHTTPClient(userAgent string, validate bool, httpTimeout string) http.Client {
-	transport := &http.Transport{
-		DisableKeepAlives: true,
-		TLSClientConfig: &tls.Config{
-			Renegotiation:      tls.RenegotiateOnceAsClient,
-			InsecureSkipVerify: validate,
-		},
-	}
-
-	customTimeout, err := time.ParseDuration(httpTimeout)
-	if err != nil {
-		slog.Error(fmt.Sprintf("Unable to parse HTTP Timeout value: %s", httpTimeout))
-		os.Exit(1)
-	}
-
-	// Create a custom http.Client
-	client := &http.Client{
-		Timeout:   customTimeout,
-		Transport: transport,
-	}
-
-	// Set the User-Agent header globally for this client
-	client.Transport = &customTransport{
-		Transport: transport,
-		UserAgent: userAgent,
-	}
-
-	return *client
-}
-
-// customTransport is a custom http.RoundTripper that sets the User-Agent header
+// customTransport: Process User-Agent & NTLM 
 type customTransport struct {
-	Transport http.RoundTripper
-	UserAgent string
+    Transport http.RoundTripper
+    UserAgent string
+    Username  string
+    Password  string
 }
 
 func (t *customTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	req.Header.Set("User-Agent", t.UserAgent)
-	return t.Transport.RoundTrip(req)
+    // Setting User-Agent
+    if t.UserAgent != "" {
+        req.Header.Set("User-Agent", t.UserAgent)
+    }
+
+    // Add Username & Password
+    if t.Username != "" && t.Password != "" {
+        req.SetBasicAuth(t.Username, t.Password)
+    }
+
+    // Execute
+    return t.Transport.RoundTrip(req)
+}
+
+func createCustomHTTPClient(userAgent string, insecureSkipVerify bool, httpTimeout string, useNTLM bool, username, password string) http.Client {
+    // Base transport
+    baseTransport := &http.Transport{
+        TLSClientConfig: &tls.Config{
+            InsecureSkipVerify: insecureSkipVerify,
+        },
+    }
+
+    // Default transport
+    transport := http.RoundTripper(baseTransport)
+
+    // If NTLM is needed, wrap the transport with NTLM negotiator
+    if useNTLM {
+        transport = ntlmssp.Negotiator{
+            RoundTripper: baseTransport,
+        }
+    }
+
+    // Parse timeout
+    timeout, err := time.ParseDuration(httpTimeout)
+    if err != nil {
+        slog.Error("Invalid HTTP timeout value", "timeout", httpTimeout, "error", err)
+        os.Exit(1)
+    }
+
+    // Create the HTTP client with custom transport
+    client := http.Client{
+        Timeout: timeout,
+        Transport: &customTransport{
+            Transport: transport,
+            UserAgent: userAgent,
+            Username:  username,
+            Password:  password,
+        },
+    }
+
+    return client
 }
