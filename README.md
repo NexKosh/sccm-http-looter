@@ -1,5 +1,10 @@
 # SCCM HTTP Looter
 
+## Add NTLM Auth
+
+![image](https://github.com/user-attachments/assets/5959b61b-c931-41e9-b64b-8a65db39f700)
+
+
 ## How it works
 
 SCCM distribution points (DPs) are the servers used by Microsoft SCCM to host all the files used in software installs, patches, script deployments, etc.
